@@ -1,0 +1,6 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Optional helper */
+.tabular-nums { font-variant-numeric: tabular-nums; }
