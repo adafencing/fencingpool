@@ -322,7 +322,9 @@ export default function App() {
                           title="Edit bouts"
                         >
                           {pairSummary.vA + pairSummary.vB > 0 ? (
-                            <span className="text-sm text-gray-800 tabular-nums font-semibold">{pairSummary.vA}\u2009–\u2009{pairSummary.vB}</span>
+                            <span className="text-sm text-gray-800 tabular-nums font-semibold">
+  {pairSummary.vA}{'\u2009'}–{'\u2009'}{pairSummary.vB}
+</span>
                           ) : (
                             <span className="text-xs text-gray-400">Add</span>
                           )}
