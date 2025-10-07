@@ -1,14 +1,9 @@
 import React, { useMemo, useState } from "react";
-<div className="p-4 my-2 bg-blue-200 rounded-xl">Tailwind is working</div>
+
 /**
- * Digital Fencing Pool Sheet — Polished UI (FIXED)
- * - Centered max-width layout, compact toolbar
- * - Sticky header and sticky left name column
- * - Clean cells with subtle borders and hover hints
- * - Modal editor: full-screen overlay, large +/- controls
- *
- * NOTE: This version fixes a JSX syntax error (missing closing brace for the
- * component) and adds the Inc() control component at the end of the file.
+ * Digital Fencing Pool Sheet — Polished UI (with Standings CSV export)
+ * - Adds an "Export CSV" button that downloads the Standings table only
+ * - No external libraries; works in the browser via Blob + anchor trick
  */
 
 // ---------- Helpers ----------
@@ -34,10 +29,7 @@ function effectiveScore(base, handicap) {
 
 // Victory, HS/HR calc for one pair's 1..4 bouts (indexes a vs b)
 function calcPairStats(bouts) {
-  let vA = 0,
-    vB = 0,
-    hsA = 0,
-    hsB = 0;
+  let vA = 0, vB = 0, hsA = 0, hsB = 0;
   bouts.forEach((bt) => {
     const sa = effectiveScore(bt.a, bt.ha);
     const sb = effectiveScore(bt.b, bt.hb);
@@ -46,9 +38,24 @@ function calcPairStats(bouts) {
     hsB += sb;
     if (sa > sb) vA += 1;
     else if (sb > sa) vB += 1;
-    // ties not counted (should not occur in pools, but ignored if equal)
+    // ties not counted (ignored if equal)
   });
   return { vA, vB, hsA, hsB };
+}
+
+// Simple CSV downloader
+function downloadCSV(rows, filename) {
+  const esc = (val) => `"${String(val ?? "").replace(/"/g, '""')}"`;
+  const csv = rows.map((r) => r.map(esc).join(",")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // ---------- Main Component ----------
@@ -113,7 +120,7 @@ export default function App() {
       return a.idx - b.idx;
     });
 
-    // Place numbers (ties stay equal if all keys equal)
+    // Place numbers
     const places = new Map();
     let place = 1;
     sorted.forEach((r, k) => {
@@ -130,6 +137,30 @@ export default function App() {
     return res.map((r) => ({ ...r, Place: places.get(r.idx) }));
   }, [pairs, N, B, visibleNames]);
 
+  // For rendering + CSV export, use the same sort as the table
+  const sortedStandings = useMemo(() => {
+    return [...standings].sort((a, b) => {
+      if (b.V !== a.V) return b.V - a.V;
+      if (b.IND !== a.IND) return b.IND - a.IND;
+      if (b.HS !== a.HS) return b.HS - a.HS;
+      return a.idx - b.idx;
+    });
+  }, [standings]);
+
+  // ---------- CSV Export (Standings only) ----------
+  const exportStandingsCSV = () => {
+    const header = ["#", "Name", "V", "HS", "HR", "IND"];
+    const rows = sortedStandings.map((r) => [
+      r.Place,
+      r.name,
+      r.V,
+      r.HS,
+      r.HR,
+      r.IND,
+    ]);
+    downloadCSV([header, ...rows], `standings_${date}.csv`);
+  };
+
   // ---------- Handlers ----------
   const updateName = (i, val) => {
     setNames((old) => {
@@ -142,7 +173,9 @@ export default function App() {
   const updateBout = (i, j, boutIndex, field, value) => {
     if (i >= j) return; // we only store i<j
     setPairs((old) => {
-      const next = old.map((row) => row.map((cell) => (Array.isArray(cell) ? [...cell] : cell)));
+      const next = old.map((row) =>
+        row.map((cell) => (Array.isArray(cell) ? [...cell] : cell))
+      );
       const arr = next[i][j].map((b) => ({ ...b }));
       arr[boutIndex][field] = value;
       next[i][j] = arr;
@@ -152,7 +185,11 @@ export default function App() {
 
   const incDec = (i, j, k, field, delta) => {
     setPairs((old) => {
-      const next = old.map((row) => row.map((cell) => (Array.isArray(cell) ? cell.map((b) => ({ ...b })) : cell)));
+      const next = old.map((row) =>
+        row.map((cell) =>
+          Array.isArray(cell) ? cell.map((b) => ({ ...b })) : cell
+        )
+      );
       const v = safeInt(next[i][j][k][field]) + delta;
       next[i][j][k][field] = v < 0 ? 0 : v;
       return next;
@@ -162,7 +199,9 @@ export default function App() {
   const clearPair = (i, j) => {
     if (i >= j) return;
     setPairs((old) => {
-      const next = old.map((row) => row.map((cell) => (Array.isArray(cell) ? [...cell] : cell)));
+      const next = old.map((row) =>
+        row.map((cell) => (Array.isArray(cell) ? [...cell] : cell))
+      );
       next[i][j] = makeEmptyPairData();
       return next;
     });
@@ -197,9 +236,7 @@ export default function App() {
               className="border rounded-xl px-3 py-2 text-sm bg-white shadow-sm"
             >
               {Array.from({ length: 9 }, (_, k) => 2 + k).map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
+                <option key={n} value={n}>{n}</option>
               ))}
             </select>
             <label className="text-sm text-gray-700">Bouts per pairing</label>
@@ -209,12 +246,12 @@ export default function App() {
               className="border rounded-xl px-3 py-2 text-sm bg-white shadow-sm"
             >
               {[1, 2, 3, 4].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
+                <option key={n} value={n}>{n}</option>
               ))}
             </select>
-            <button onClick={() => window.print()} className="ml-auto px-3 py-2 rounded-xl bg-black text-white text-sm shadow-sm">Print / Save PDF</button>
+            <button onClick={() => window.print()} className="ml-auto px-3 py-2 rounded-xl bg-black text-white text-sm shadow-sm">
+              Print / Save PDF
+            </button>
           </div>
         </header>
 
@@ -308,7 +345,17 @@ export default function App() {
 
         {/* Standings Table */}
         <section className="mt-6">
-          <h2 className="text-lg font-semibold mb-2">Standings</h2>
+          <div className="mb-2 flex items-center gap-3">
+            <h2 className="text-lg font-semibold">Standings</h2>
+            <button
+              onClick={exportStandingsCSV}
+              className="ml-auto px-3 py-2 rounded-xl bg-black text-white text-sm shadow-sm"
+              title="Download standings as CSV"
+            >
+              Export CSV
+            </button>
+          </div>
+
           <div className="overflow-auto border rounded-2xl bg-white shadow-sm">
             <table className="min-w-max w-full text-sm">
               <thead>
@@ -319,31 +366,25 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {[...standings]
-                  .map((r) => r)
-                  .sort((a, b) => {
-                    if (b.V !== a.V) return b.V - a.V;
-                    if (b.IND !== a.IND) return b.IND - a.IND;
-                    if (b.HS !== a.HS) return b.HS - a.HS;
-                    return a.idx - b.idx;
-                  })
-                  .map((r) => (
-                    <tr key={r.idx}>
-                      <td className="p-3 border-t tabular-nums">{r.Place}</td>
-                      <td className="p-3 border-t border-l">{r.name}</td>
-                      <td className="p-3 text-center border-t border-l tabular-nums font-semibold">{r.V}</td>
-                      <td className="p-3 text-center border-t border-l tabular-nums">{r.HS}</td>
-                      <td className="p-3 text-center border-t border-l tabular-nums">{r.HR}</td>
-                      <td className="p-3 text-center border-t border-l tabular-nums">{r.IND}</td>
-                    </tr>
-                  ))}
+                {sortedStandings.map((r) => (
+                  <tr key={r.idx}>
+                    <td className="p-3 border-t tabular-nums">{r.Place}</td>
+                    <td className="p-3 border-t border-l">{r.name}</td>
+                    <td className="p-3 text-center border-t border-l tabular-nums font-semibold">{r.V}</td>
+                    <td className="p-3 text-center border-t border-l tabular-nums">{r.HS}</td>
+                    <td className="p-3 text-center border-t border-l tabular-nums">{r.HR}</td>
+                    <td className="p-3 text-center border-t border-l tabular-nums">{r.IND}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         </section>
 
         {/* Small legend */}
-        <p className="mt-4 text-xs text-gray-500">Legend: V = Victories • HS = Hits Scored • HR = Hits Received • IND = HS − HR</p>
+        <p className="mt-4 text-xs text-gray-500">
+          Legend: V = Victories • HS = Hits Scored • HR = Hits Received • IND = HS − HR
+        </p>
       </div>
 
       {/* Pop-up Editor Modal */}
