@@ -1,10 +1,43 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 
 /**
- * Digital Fencing Pool Sheet — Polished UI (with Standings CSV export)
- * - Adds an "Export CSV" button that downloads the Standings table only
- * - No external libraries; works in the browser via Blob + anchor trick
+ * Digital Fencing Pool Sheet — with localStorage persistence
+ * - Remembers all inputs across refresh (names, scores, handicaps, size, boutsPer, date)
+ * - Debounced autosave
+ * - "Clear data" button to wipe storage
+ * - Standings-only CSV export preserved
  */
+
+// ---------- Persistence helpers ----------
+const STORAGE_KEY = "fencing_pool_app_v1";
+
+function loadStored() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    // Basic shape validation
+    if (!obj || typeof obj !== "object") return null;
+    if (!Array.isArray(obj.names) || !Array.isArray(obj.pairs)) return null;
+    return obj;
+  } catch {
+    return null;
+  }
+}
+
+function saveStored(state) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // ignore quota or private mode errors
+  }
+}
+
+function clearStored() {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {}
+}
 
 // ---------- Helpers ----------
 function makeEmptyPairData() {
@@ -38,7 +71,6 @@ function calcPairStats(bouts) {
     hsB += sb;
     if (sa > sb) vA += 1;
     else if (sb > sa) vB += 1;
-    // ties not counted (ignored if equal)
   });
   return { vA, vB, hsA, hsB };
 }
@@ -60,11 +92,17 @@ function downloadCSV(rows, filename) {
 
 // ---------- Main Component ----------
 export default function App() {
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [size, setSize] = useState(6); // default pool size
-  const [boutsPer, setBoutsPer] = useState(2); // 1-4 bouts per pairing
-  const [names, setNames] = useState(() =>
-    Array.from({ length: 10 }, (_, i) => `F${i + 1}`)
+  // Try to load from storage first
+  const stored = loadStored();
+
+  const [date, setDate] = useState(
+    stored?.date ?? new Date().toISOString().slice(0, 10)
+  );
+  const [size, setSize] = useState(stored?.size ?? 6); // default pool size
+  const [boutsPer, setBoutsPer] = useState(stored?.boutsPer ?? 2); // 1-4 bouts per pairing
+  const [names, setNames] = useState(
+    stored?.names ??
+      Array.from({ length: 10 }, (_, i) => `F${i + 1}`)
   );
 
   /**
@@ -72,6 +110,10 @@ export default function App() {
    * pairs[i][j] exists only for i<j (upper triangle). Each cell holds an array of up to 4 bouts.
    */
   const [pairs, setPairs] = useState(() => {
+    if (stored?.pairs && Array.isArray(stored.pairs) && stored.pairs.length === 10) {
+      // basic sanity check; fall back if malformed
+      return stored.pairs;
+    }
     const m = Array.from({ length: 10 }, (_, i) =>
       Array.from({ length: 10 }, (_, j) => (i < j ? makeEmptyPairData() : null))
     );
@@ -86,6 +128,34 @@ export default function App() {
   const B = Math.min(4, Math.max(1, boutsPer));
 
   const visibleNames = names.slice(0, N);
+
+  // ---------- Auto-save (debounced) ----------
+  const saveTimer = useRef(null);
+  useEffect(() => {
+    // Debounce saves to avoid thrashing localStorage
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      saveStored({ date, size: N, boutsPer: B, names, pairs });
+    }, 300);
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date, N, B, names, pairs]);
+
+  const handleClearData = () => {
+    clearStored();
+    // Reset state to clean defaults
+    setDate(new Date().toISOString().slice(0, 10));
+    setSize(6);
+    setBoutsPer(2);
+    setNames(Array.from({ length: 10 }, (_, i) => `F${i + 1}`));
+    setPairs(
+      Array.from({ length: 10 }, (_, i) =>
+        Array.from({ length: 10 }, (_, j) => (i < j ? makeEmptyPairData() : null))
+      )
+    );
+  };
 
   // ---------- Stats Computation ----------
   const standings = useMemo(() => {
@@ -219,7 +289,7 @@ export default function App() {
         {/* Header */}
         <header className="mb-5">
           <h1 className="text-3xl font-bold tracking-tight">Digital Fencing Pool Sheet</h1>
-          <p className="text-sm text-gray-600 mt-1">Up to 10 fencers • 1–4 bouts per pairing • Per-bout handicap</p>
+          <p className="text-sm text-gray-600 mt-1">Up to 10 fencers • 1–4 bouts per pairing • Per-bout handicap • Autosaves locally</p>
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <label className="text-sm text-gray-700">Date</label>
             <input
@@ -251,6 +321,9 @@ export default function App() {
             </select>
             <button onClick={() => window.print()} className="ml-auto px-3 py-2 rounded-xl bg-black text-white text-sm shadow-sm">
               Print / Save PDF
+            </button>
+            <button onClick={handleClearData} className="px-3 py-2 rounded-xl border text-sm shadow-sm">
+              Clear data
             </button>
           </div>
         </header>
@@ -303,7 +376,7 @@ export default function App() {
                     // Lower triangle -> read-only mirror summary
                     if (i > j) {
                       const stats = summaryFor(j, i);
-                      const label = stats.vA + stats.vB > 0 ? `${stats.vB}\u2009–\u2009${stats.vA}` : '';
+                      const label = stats.vA + stats.vB > 0 ? `${stats.vB} – ${stats.vA}` : '';
                       return (
                         <td key={j} className="p-1 text-center align-middle border-t border-l">
                           <span className="text-xs text-gray-400 tabular-nums">{label}</span>
@@ -323,8 +396,8 @@ export default function App() {
                         >
                           {pairSummary.vA + pairSummary.vB > 0 ? (
                             <span className="text-sm text-gray-800 tabular-nums font-semibold">
-  {pairSummary.vA} – {pairSummary.vB}
-</span>
+                              {pairSummary.vA} – {pairSummary.vB}
+                            </span>
                           ) : (
                             <span className="text-xs text-gray-400">Add</span>
                           )}
@@ -456,7 +529,6 @@ export default function App() {
 }
 
 // ---------- Components ----------
-// Simple incrementer with + and - buttons (no native steppers)
 function Inc({ fieldLabel, value, onDec, onInc }) {
   return (
     <div>
