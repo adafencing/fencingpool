@@ -235,27 +235,17 @@ export default function App() {
         <div className="mb-6">
           <div className="flex items-center gap-2 overflow-x-auto pb-2">
             {pools.map((pool) => (
-              <div key={pool.id} className="flex items-center gap-1 bg-white rounded-xl border shadow-sm">
-                <button
-                  onClick={() => setActivePoolId(pool.id)}
-                  className={`px-4 py-2 rounded-l-xl text-sm font-medium transition ${
-                    activePoolId === pool.id
-                      ? 'bg-black text-white'
-                      : 'hover:bg-gray-50'
-                  }`}
-                >
-                  {pool.name}
-                </button>
-                {pools.length > 1 && (
-                  <button
-                    onClick={() => removePool(pool.id)}
-                    className="px-2 py-2 hover:bg-gray-100 rounded-r-xl text-gray-500 hover:text-red-600"
-                    title="Remove pool"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
+              <button
+                key={pool.id}
+                onClick={() => setActivePoolId(pool.id)}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition border shadow-sm ${
+                  activePoolId === pool.id
+                    ? 'bg-black text-white'
+                    : 'bg-white hover:bg-gray-50'
+                }`}
+              >
+                {pool.name}
+              </button>
             ))}
             <button
               onClick={addPool}
@@ -309,6 +299,18 @@ export default function App() {
             <button onClick={clearPoolData} className="px-3 py-2 rounded-xl border text-sm shadow-sm">
               Clear pool data
             </button>
+            {pools.length > 1 && (
+              <button 
+                onClick={() => {
+                  if (confirm(`Delete "${activePool.name}"? This cannot be undone.`)) {
+                    removePool(activePoolId);
+                  }
+                }}
+                className="px-3 py-2 rounded-xl border border-red-300 text-red-600 hover:bg-red-50 text-sm shadow-sm"
+              >
+                Delete pool
+              </button>
+            )}
           </div>
         </div>
 
